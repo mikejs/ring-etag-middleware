@@ -10,19 +10,26 @@
    (let [bytes (.getBytes (with-out-str (pr obj)))] 
      (to-hex-string (.digest (MessageDigest/getInstance "SHA1") bytes))))
 
+(defn- not-modified-response [etag]
+  {:status 304 :body "" :headers {"etag" etag}})
+
 (defn wrap-etag [handler]
+  "Generates an etag header by hashing response body (currently only
+supported for string bodies). If the request includes a matching
+'if-none-match' header then return a 304."
   (fn [req]
-    (let [resp (handler req)
-          body (resp :body)
-          etag ((resp :headers) "etag")]
-      (if (and etag (not= (resp :status) 304))
-        (if (= etag ((req :headers) "if-none-match"))
-          {:status 304 :headers {"etag" etag}}
+    (let [{body :body
+           status :status
+           {etag "etag"} :headers
+           :as resp} (handler req)
+           if-none-match (get-in req [:headers "if-none-match"])]
+      (if (and etag (not= status 304))
+        (if (= etag if-none-match)
+          (not-modified-response etag)
           resp)
         (if (string? body)
-          (let [etag (str "\"" (sha1 body) "\"")
-                headers (assoc (resp :headers) "etag" etag)]
-            (if (= etag ((req :headers) "if-none-match"))
-              {:status 304 :headers {"etag" etag}}
-              (assoc resp :headers headers)))
+          (let [etag (str "\"" (sha1 body) "\"")]
+            (if (= etag if-none-match)
+              (not-modified-response etag)
+              (assoc-in resp [:headers "etag"] etag)))
           resp)))))
