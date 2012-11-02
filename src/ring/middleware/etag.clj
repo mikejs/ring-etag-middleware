@@ -11,7 +11,8 @@
    (let [bytes (.getBytes (with-out-str (pr obj)))] 
      (to-hex-string (.digest (MessageDigest/getInstance "SHA1") bytes))))
 
-(defmulti calculate-etag class)
+(def calculate-etag-dispatch-fn class)
+(defmulti calculate-etag calculate-etag-dispatch-fn)
 (defmethod calculate-etag String [s] (sha1 s))
 (defmethod calculate-etag File
   [f]
@@ -21,21 +22,25 @@
   {:status 304 :body "" :headers {"etag" etag}})
 
 (defn wrap-etag [handler]
-  "Generates an etag header by hashing response body (currently only
-supported for string bodies). If the request includes a matching
-'if-none-match' header then return a 304."
+  "Generates an etag header by hashing the response body.
+   If the request's 'if-none-match' header matches, substitutes a
+   304 response.
+
+   You can add support for generating etags for a new body class
+   using (defmethod calculate-etag <class>)."
   (fn [req]
     (let [{body :body
            status :status
            {etag "etag"} :headers
            :as resp} (handler req)
-           if-none-match (get-in req [:headers "if-none-match"])]
+           if-none-match (get-in req [:headers "if-none-match"])
+           dispatch-value (calculate-etag-dispatch-fn body)]
       (if (and etag (not= status 304))
         (if (= etag if-none-match)
           (not-modified-response etag)
           resp)
-        (if (or (string? body) (instance? File body))
-          (let [etag (calculate-etag body)]
+        (if-let [method-fn (get-method calculate-etag dispatch-value)]
+          (let [etag (method-fn body)]
             (if (= etag if-none-match)
               (not-modified-response etag)
               (assoc-in resp [:headers "etag"] etag)))
