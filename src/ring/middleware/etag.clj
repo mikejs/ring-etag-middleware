@@ -1,11 +1,11 @@
 (ns ring.middleware.etag
-  (:require [clojure.contrib.str-utils :as str-utils])
+  (:require [clojure.string :as string])
   (:import (java.security MessageDigest)
            (java.io File)))
 
 (defn- to-hex-string [bytes]
-  (str-utils/str-join "" (map #(Integer/toHexString (bit-and % 0xff))
-                              bytes)))
+  (string/join ""
+   (map #(Integer/toHexString (bit-and % 0xff)) bytes)))
 
 (defn- sha1 [obj]
    (let [bytes (.getBytes (with-out-str (pr obj)))] 
